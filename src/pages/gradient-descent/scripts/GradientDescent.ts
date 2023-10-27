@@ -1,10 +1,19 @@
-import { derivative, isInteger, parse } from "mathjs";
+import { OptionalObjectOf, mergeOptionals } from "@/lib/ts-utils";
+import { derivative, parse } from "mathjs";
 
 export type GradientDescentCalcOptions = {
   learningRate: number;
   initialVals: { [x: string]: number };
   minStepSize: number;
   maxSteps: number;
+  callback?: (details: {
+    steps: { [x: string]: number };
+    currVals: { [x: string]: number };
+    iterationDetails: {
+      count: number;
+      steps: { [x: string]: number } | null;
+    };
+  }) => void;
 };
 
 export class GradientDescentCalc {
@@ -12,7 +21,7 @@ export class GradientDescentCalc {
   public derivatives: { [x: string]: math.MathNode };
   public vars: string[];
   private currVals: { [x: string]: number };
-  private options: Omit<GradientDescentCalcOptions, "initialVals">;
+  private options: Required<GradientDescentCalcOptions>;
 
   // Instance variables
   private iterationDetails: {
@@ -28,12 +37,14 @@ export class GradientDescentCalc {
     vars: string[] = ["x"],
     options: GradientDescentCalcOptions
   ) {
-    const { initialVals, ...reqOptions } = options;
-    this.options = reqOptions;
+    const defaultOptions: OptionalObjectOf<GradientDescentCalcOptions> = {
+      callback: () => {},
+    };
+    this.options = mergeOptionals(options, defaultOptions);
     this.exp = parse(func);
     this.vars = vars;
     this.derivatives = this.getGradients();
-    this.currVals = initialVals;
+    this.currVals = this.options.initialVals;
   }
 
   public getGradients() {
@@ -44,11 +55,17 @@ export class GradientDescentCalc {
     return gradients;
   }
 
+  public start() {
+    for (let i = 0; i < this.options.maxSteps; i++) {
+      this.options.callback(this.getStep());
+    }
+  }
+
   public getStepFromVar(varName: string) {
     return this.derivatives[varName].evaluate(this.currVals);
   }
 
-  public getStep() {
+  private getStep() {
     const steps: { [x: string]: number } = {};
     if (this.iterationDetails.count >= this.options.maxSteps) {
       return {
@@ -91,6 +108,10 @@ export class GradientDescentCalc {
       currVals: { ...this.currVals },
       iterationDetails: { ...this.iterationDetails },
     };
+  }
+
+  public registerCallback(callback: typeof this.options.callback) {
+    this.options.callback = callback;
   }
 
   public getVals() {

@@ -30,6 +30,8 @@
     "webpack-dev-server": "^4.15.1"
   },
   "dependencies": {
+    "@types/algebra.js": "^0.2.3",
+    "algebra.js": "^0.2.6",
     "mathjs": "^12.0.0"
   }
 }
