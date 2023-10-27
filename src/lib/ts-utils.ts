@@ -15,3 +15,9 @@ export function mergeOptionals<T extends object>(
 ) {
   return { ...defaultOptions, ...optionals } as Required<T>;
 }
+
+export async function asyncSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

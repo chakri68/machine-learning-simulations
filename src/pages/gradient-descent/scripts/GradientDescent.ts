@@ -7,13 +7,12 @@ export type GradientDescentCalcOptions = {
   minStepSize: number;
   maxSteps: number;
   callback?: (details: {
-    steps: { [x: string]: number };
     currVals: { [x: string]: number };
     iterationDetails: {
       count: number;
-      steps: { [x: string]: number } | null;
+      steps: { [x: string]: number };
     };
-  }) => void;
+  }) => void | Promise<void>;
 };
 
 export class GradientDescentCalc {
@@ -26,10 +25,10 @@ export class GradientDescentCalc {
   // Instance variables
   private iterationDetails: {
     count: number;
-    steps: { [x: string]: number } | null;
+    steps: { [x: string]: number };
   } = {
     count: 0,
-    steps: null,
+    steps: {},
   };
 
   constructor(
@@ -55,9 +54,11 @@ export class GradientDescentCalc {
     return gradients;
   }
 
-  public start() {
+  public async start() {
     for (let i = 0; i < this.options.maxSteps; i++) {
-      this.options.callback(this.getStep());
+      const { stop, ...data } = this.getStep();
+      await this.options.callback(data);
+      if (stop === true) break;
     }
   }
 
@@ -65,22 +66,20 @@ export class GradientDescentCalc {
     return this.derivatives[varName].evaluate(this.currVals);
   }
 
-  private getStep() {
+  private getStep(): {
+    currVals: { [x: string]: number };
+    iterationDetails: {
+      count: number;
+      steps: { [x: string]: number };
+    };
+  } & { stop?: boolean } {
     const steps: { [x: string]: number } = {};
-    if (this.iterationDetails.count >= this.options.maxSteps) {
-      return {
-        steps: this.vars.reduce((acc: { [x: string]: number }, varName) => {
-          acc[varName] = 0;
-          return acc;
-        }, {}),
-        currVals: { ...this.currVals },
-        iterationDetails: { ...this.iterationDetails },
-      };
-    }
+    this.iterationDetails.count++;
     for (const varName of this.vars) {
       if (
-        this.iterationDetails.steps?.[varName] &&
-        this.iterationDetails.steps?.[varName] <= this.options.minStepSize
+        this.iterationDetails.steps[varName] &&
+        Math.abs(this.iterationDetails.steps[varName]) <=
+          this.options.minStepSize
       ) {
         steps[varName] = 0;
       } else {
@@ -89,24 +88,30 @@ export class GradientDescentCalc {
         this.currVals[varName] -= steps[varName];
       }
     }
+    this.iterationDetails.steps = steps;
     if (
-      !Object.keys(steps).reduce(
+      this.iterationDetails.count >= this.options.maxSteps ||
+      Object.keys(steps).reduce(
         (acc, key) => (acc = acc && steps[key] === 0),
         true
       )
     ) {
-      this.iterationDetails.count++;
-      this.iterationDetails.steps = steps;
-      return {
-        steps,
-        currVals: this.currVals,
-        iterationDetails: this.iterationDetails,
-      };
+      console.log(
+        "Reasone for stopping:",
+        this.iterationDetails.count >= this.options.maxSteps
+          ? "Max steps reached"
+          : "Min step size reached"
+      );
     }
     return {
-      steps,
-      currVals: { ...this.currVals },
-      iterationDetails: { ...this.iterationDetails },
+      currVals: this.currVals,
+      iterationDetails: this.iterationDetails,
+      stop:
+        this.iterationDetails.count >= this.options.maxSteps ||
+        Object.keys(steps).reduce(
+          (acc, key) => (acc = acc && steps[key] === 0),
+          true
+        ),
     };
   }
 

@@ -1,24 +1,83 @@
-import { CanvasDrawOptions } from "@/lib/canvas-utils";
 import { OptionalObjectOf, mergeOptionals } from "@/lib/ts-utils";
-import algebra from "algebra.js";
+import algebra, { Equation, Expression } from "algebra.js";
 import { create, all } from "mathjs";
+import {
+  Transformation,
+  TransformationManager2D,
+} from "./TransformationManager";
 
 const math = create(all, {});
 
+export type CanvasOptions = {
+  transformation?: Transformation;
+  pixelOptions?: { pixelSize: number; pixelColor: string };
+  lineOptions?: {
+    lineColor: string;
+    lineWidth: number;
+  };
+};
+
 export class GradientDescentCanvas {
+  private options: Required<CanvasOptions>;
+  private transformationManager: TransformationManager2D;
+
   constructor(
     public canvas: HTMLCanvasElement,
-    public ctx: CanvasRenderingContext2D
+    public ctx: CanvasRenderingContext2D,
+    options: CanvasOptions = {}
   ) {
     this.configureCanvas();
+    const defaultOptions: OptionalObjectOf<CanvasOptions> = {
+      transformation: {
+        translate: [this.canvas.width / 2, this.canvas.height / 2],
+        rotation: 0,
+        scale: [1, -1],
+      },
+      pixelOptions: {
+        pixelSize: 5,
+        pixelColor: "rgba(0, 175, 0, 0.5)",
+      },
+      lineOptions: {
+        lineColor: "rgba(255, 0, 0, 0.5)",
+        lineWidth: 1,
+      },
+    };
+    this.options = mergeOptionals(options, defaultOptions);
+    this.transformationManager = new TransformationManager2D(
+      this.options.transformation
+    );
+
+    // Draw the axes
     this.drawAxes();
   }
 
-  public drawLine(
+  public plotPoint(
+    coords: [number, number],
+    setupCtx: (ctx: CanvasRenderingContext2D) => void = () => {}
+  ) {
+    const [translatedX, translatedY] =
+      this.transformationManager.systemToWorldCoords(coords);
+    this.ctx.fillStyle = this.options.pixelOptions.pixelColor;
+    setupCtx(this.ctx);
+    this.ctx.beginPath();
+    this.ctx.arc(
+      translatedX,
+      translatedY,
+      this.options.pixelOptions.pixelSize,
+      0,
+      Math.PI * 2,
+      false
+    );
+    this.ctx.fill();
+    this.ctx.closePath();
+  }
+
+  public plotLine(
     line: string,
     setupCtx: (ctx: CanvasRenderingContext2D) => void = () => {}
   ) {
-    const trimmedCoords = this.getTrimmedLineCoords(line);
+    const newLine = this.transformationManager.systemToWorldEqn(line);
+    const trimmedCoords = this.getTrimmedLineCoords(newLine);
     if (trimmedCoords === null) {
       console.info(`Line ${line} outside of canvas`);
       return;
@@ -29,6 +88,8 @@ export class GradientDescentCanvas {
     const [startX, startY] = start;
     const [endX, endY] = end;
 
+    this.ctx.strokeStyle = this.options.lineOptions.lineColor;
+    this.ctx.lineWidth = this.options.lineOptions.lineWidth;
     setupCtx(this.ctx);
     this.ctx.beginPath();
     this.ctx.moveTo(startX, startY);
@@ -42,8 +103,11 @@ export class GradientDescentCanvas {
     const width = this.canvas.width;
     const height = this.canvas.height;
 
-    const newLine = this.translateEqn(this.flipEqn(l));
-    const lineEqn = algebra.parse(newLine) as algebra.Equation;
+    // console.log({ l });
+
+    const lineEqn = algebra.parse(l) as algebra.Equation;
+
+    // console.log({ lineEqn: lineEqn.toString() });
 
     // Check is x exists in the equation
     const xExists = lineEqn.toString().includes("x");
@@ -126,40 +190,6 @@ export class GradientDescentCanvas {
     this.canvas.height = window.innerHeight;
   }
 
-  private translateEqn(eqn: string): string {
-    // replace x with (x - width / 2)
-    // replace y with (y -height / 2)
-    const width = this.canvas.width;
-    const height = this.canvas.height;
-
-    const newEqn = eqn
-      .replace(/x/g, `(x - ${width / 2})`)
-      .replace(/y/g, `(y - ${height / 2})`);
-
-    return newEqn;
-  }
-
-  private rotateEqn(eqn: string, angle: number): string {
-    // replace x with ((y * sin(theta)) - (x * cos(theta)))
-    // replace y with ((y * cos(theta)) + (x * sin(theta)))
-    const newEqn = eqn
-      .replace(/x/g, `((y * ${Math.sin(angle)}) - (x * ${Math.cos(angle)}))`)
-      .replace(/y/g, `((y * ${Math.cos(angle)}) + (x * ${Math.sin(angle)}))`);
-    return newEqn;
-  }
-
-  private flipEqn(eqn: string, axis: "x" | "y" = "y"): string {
-    if (axis === "x") {
-      // replace x with -x
-      const newEqn = eqn.replace(/x/g, `(-x)`);
-      return newEqn;
-    } else {
-      // replace y with -y
-      const newEqn = eqn.replace(/y/g, `(-y)`);
-      return newEqn;
-    }
-  }
-
   private drawAxes() {
     const drawStyles = (ctx: CanvasRenderingContext2D) => {
       // Make a dashed line to represent axes
@@ -167,14 +197,32 @@ export class GradientDescentCanvas {
       ctx.strokeStyle = "black";
       ctx.lineWidth = 2;
     };
-    this.drawLine("x = 0", drawStyles);
-    this.drawLine("y = 0", drawStyles);
+    this.plotLine("x = 0", drawStyles);
+    this.plotLine("y = 0", drawStyles);
+  }
+
+  private clearCanvas() {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  public clearLines() {
+    this.clearCanvas();
+    this.drawAxes();
   }
 
   static create(
     canvas: HTMLCanvasElement,
-    ctx: CanvasRenderingContext2D
+    ctx: CanvasRenderingContext2D,
+    options: CanvasOptions = {}
   ): GradientDescentCanvas {
-    return new GradientDescentCanvas(canvas, ctx);
+    return new GradientDescentCanvas(canvas, ctx, options);
+  }
+
+  static generateLineEqn(slope: number, point: [number, number]) {
+    const [x, y] = point;
+    const b = y - slope * x;
+    const eqn = `y = ${slope.toFixed(2)} * x + (${b.toFixed(2)})`;
+    // console.log({ tangent: eqn });
+    return eqn;
   }
 }
